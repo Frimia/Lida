@@ -13,8 +13,8 @@ The following should be noted:
 Here are the ***core*** files (dependencies) you would *need* to use the standalone library only:
 
 1. [The core](https://github.com/Rerumu/CSLuaCore/blob/master/ReluaCore/Core.cs)
-2. [The main]()
-3. [The assembler]()
+2. [The main](https://github.com/Rerumu/Rerudec/blob/master/Source/Rerudec.cs)
+3. [The assembler](https://github.com/Rerumu/Rerudec/blob/master/Source/Rerure.cs)
 
 You do not *need* Program.cs, and should only be there to show off how the program works.
 Documentation coming soon, hopefully, although Program.cs (my half hour mess) should just about explain how things work for now.
