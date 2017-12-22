@@ -19,3 +19,6 @@ Here are the ***core*** files (dependencies) you would *need* to use the standal
 You do not *need* Program.cs, and should only be there to show off how the program works.
 Documentation coming soon, hopefully, although Program.cs (my half hour mess) should just about explain how things work for now.
 Out of the good of open source, I suggest you don't use this for anything malicious, unless you're willing to let me in on the meme.
+
+Program.cs test image:
+![Program Image](https://image.prntscr.com/image/DK0EG924So66vZAc6RR35g.png)
