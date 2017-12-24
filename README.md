@@ -13,6 +13,7 @@ The following should be noted:
 The ***core*** files (dependencies) you would *need* to use the standalone library only are inside of Components.
 
 You do not *need* Program.cs, and should only be there to show off how the program works. Program.cs is ran via **command line** and takes 3 arguments, a `Mode`, `Input`, and `Output` parameter. For more info, simply run in the containing folder `./Rerude.exe Help`.
+The **Test** folder contains test files I normally use while debugging.
 
 Documentation coming soon, hopefully, although Program.cs (my half hour mess) should just about explain how things work for now.
 Out of the good of open source, I suggest you don't use this for anything malicious, unless you're willing to let me in on the meme.
