@@ -33,8 +33,7 @@ namespace Rerulsd {
 
 		static DisReader LuReader = new DisReader();
 		static Lua Parser = new Lua();
-		const long Version = 0x003A;
-
+		
 		static byte[] AsSource(OutputType Type, byte[] Bytecode) { // This is a mess but readable ok
 			LuaProto_S Prototype = new LuaProto_S(Bytecode);
 			string Source;
