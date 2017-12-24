@@ -15,20 +15,20 @@ using NLua;
  *	I did a lot of stupid things in source but they worked oh well,
  *	and I'll keep doing more stupid things anyways to test
  *	
+ *	implicit owner rights @ Rerumu
  *	source credit @ Rerumu
- *
- *	other dependencies
+ *	dependencies
  *		* NLua
  *		* ReluaCore
  */
 
-// Program.cs : Only makes usage of the Ui and NLua, Rerude itself is only dependant on Rerudec.cs and ReluaCore
+// Program.cs : Only makes usage of commandline and NLua, Rerude itself is only dependant on Components
 namespace Rerulsd {
 	static class Program { // This is for testing stuff, just loads in some bytecode
 		enum OutputType {
-			COMPILE, // Only available because of NLua
+			COMPILE,
 			ASSEMBLE,
-			DISASSEMBLE,
+			DISASSEMBLE
 		}
 
 		static DisReader LuReader = new DisReader();
@@ -91,7 +91,7 @@ namespace Rerulsd {
 					Source = Sobuild.ToString();
 				}
 			}
-			// Talk about cutting corners
+
 			Parser.DoString($@"
 				local Ran, Error = loadstring([===[{Source}]===], [[{NameOf}]]);
 
@@ -109,7 +109,7 @@ namespace Rerulsd {
 			else
 				Bytecode = new byte[Source.Length];
 
-			for (int Idx = 0; Idx < Source.Length; Idx++) // I know this could have been done a better way
+			for (int Idx = 0; Idx < Source.Length; Idx++)
 				Bytecode[Idx] = ((byte) Source[Idx]);
 
 			return Bytecode;
@@ -120,140 +120,21 @@ namespace Rerulsd {
 			Console.Write(Message + (NewLine ? "\n" : ""));
 			Console.ForegroundColor = ConsoleColor.Gray;
 		}
-
-		static void Interface() {
-			OutputType Type = OutputType.DISASSEMBLE;
-			bool Running = true;
-			string Command;
-			string Input;
-			string Output;
-
-			Console.Title = $"Rerude {Version:x4}";
-			Console.WindowWidth = Console.LargestWindowWidth / 2;
-			Console.WindowHeight = Console.LargestWindowHeight / 2;
-			
-			WriteLine("Please input a method, an input filename, and output filename", ConsoleColor.Magenta);
-			WriteLine("asm    : Reassembles a disassembled file into bytecode");
-			WriteLine("cpl    : Source compiling");
-			WriteLine("dis    : Source disassembly");
-			WriteLine("soft   : Soft decompiler (not yet implemented)");
-			WriteLine("credit : Shows credits");
-			WriteLine("clear  : Clear the console output");
-			WriteLine("//////////////////////////////\n", ConsoleColor.Red);
-
-			Startup:
-			WriteLine("/method/> ", ConsoleColor.DarkCyan, false);
-			Command = Console.ReadLine().Trim(new char[] { ' ', '\t' });
-
-			if (Command.Equals("clear")) {
-				Console.Clear();
-
-				goto Startup;
-			}
-			else if (Command.Equals("credit")) {
-				WriteLine("< Credits >", ConsoleColor.Green);
-				WriteLine("Credits to Rerumu for the software and underlying library", ConsoleColor.DarkGray);
-				WriteLine("Special thanks to creators of NLua for its usage here", ConsoleColor.DarkGray);
-				WriteLine("Other credits to the internet for Lua related info", ConsoleColor.DarkGray);
-
-				goto Startup;
-			}
-
-			WriteLine("/input/> ", ConsoleColor.DarkCyan, false);
-			Input = Console.ReadLine().Trim(new char[] { ' ', '\t' });
-
-			WriteLine("/output/> ", ConsoleColor.DarkCyan, false);
-			Output = Console.ReadLine().Trim(new char[] { ' ', '\t' });
-
-			while (true) {
-				switch (Command) {
-					case "asm":
-						WriteLine("< Reassembly >", ConsoleColor.Cyan);
-						WriteLine("Reassembling file...", ConsoleColor.Yellow);
-
-						ToFile(LuReader.AsArray(Input), Output);
-
-						Console.Beep();
-
-						break;
-					case "cpl":
-						Type = OutputType.COMPILE;
-
-						goto case "last";
-					case "dis":
-						Type = OutputType.DISASSEMBLE;
-
-						goto case "last";
-					case "soft":
-						throw new NotImplementedException();
-					case "last":
-						byte[] Files;
-						
-						WriteLine($"< Rerude Debugger >", ConsoleColor.Cyan);
-#if IS_TRY_CATCH
-						try {
-#endif
-							Stopwatch Watcher = new Stopwatch();
-							Watcher.Start();
-
-							WriteLine("Retrieving bytecode", ConsoleColor.Yellow);
-							Files = FileBytes(Input, false);
-
-							WriteLine($"Bytecode size of {Files.LongLength} bytes", ConsoleColor.Yellow);
-							Files = AsSource(Type, Files);
-
-							WriteLine("Saving file result", ConsoleColor.Yellow);
-							ToFile(Files, Output);
-
-							Watcher.Stop();
-
-							WriteLine($"Operation took {Watcher.ElapsedMilliseconds}ms", ConsoleColor.Green);
-
-							Console.Beep();
-#if IS_TRY_CATCH
-						}
-						catch (Exception E) {
-							WriteLine("An error occurred", ConsoleColor.Red);
-							WriteLine(E.Message, ConsoleColor.Red);
-
-							Console.WriteLine();
-
-							goto Startup;
-						}
-#endif
-
-						break;
-					default:
-						WriteLine($"Command \"{Command}\" not recognized", ConsoleColor.Red);
-
-						goto Startup;
-				}
-
-				WriteLine("Say \"break\" to stop looping", ConsoleColor.DarkYellow);
-
-				if (!Running)
-					break;
-
-				if (Console.ReadLine().Equals("break")) {
-					Console.WriteLine();
-
-					goto Startup;
-				}
-			}
-
-			WriteLine("< Closing > Program ended", ConsoleColor.Red);
-		}
-
+		
 		static void Commandlined(string Method, string Input, string Output) {
 			OutputType Type;
 			byte[] Files;
 
 			switch (Method) {
-				case "Cpl":
+				case "cpl":
 					Type = OutputType.COMPILE;
 
 					break;
-				case "Dis":
+				case "asm":
+					Type = OutputType.ASSEMBLE;
+
+					break;
+				case "dis":
 					Type = OutputType.DISASSEMBLE;
 
 					break;
@@ -261,43 +142,63 @@ namespace Rerulsd {
 					throw new ArgumentException("Parameter not recognized", "Method");
 			}
 
-			try {
-				Stopwatch Watcher = new Stopwatch();
-				Watcher.Start();
+			if (Type == OutputType.ASSEMBLE) {
+				string[] Lines = File.ReadAllLines(Input, Data.RealASCII);
 
-				WriteLine("Retrieving bytecode", ConsoleColor.Yellow);
+				Files = LuReader.AsArray(Lines);
+				WriteLine($"Bytecode size of {Files.LongLength} bytes", ConsoleColor.Yellow);
+			}
+			else {
 				Files = FileBytes(Input, false);
 
 				WriteLine($"Bytecode size of {Files.LongLength} bytes", ConsoleColor.Yellow);
 				Files = AsSource(Type, Files);
-
-				WriteLine("Saving file result", ConsoleColor.Yellow);
-				ToFile(Files, Output);
-
-				Watcher.Stop();
-
-				WriteLine($"Operation took {Watcher.ElapsedMilliseconds}ms", ConsoleColor.Green);
 			}
-			catch (Exception E) {
-				WriteLine("An error occurred", ConsoleColor.Red);
-				WriteLine(E.Message, ConsoleColor.Red);
-			}
+
+			WriteLine("Saving file result", ConsoleColor.Yellow);
+			ToFile(Files, Output);
 		}
 
 		static void Main(string[] Args) {
 			int Numargs = Args.Length;
+			Stopwatch Watcher;
 
 			if (Numargs <= 0)
-				Interface();
-			else {
-				if (Numargs == 1)
-					throw new Exception("Missing args `In` and `Out`");
-				else if (Numargs == 2)
-					throw new Exception("Missing arg `Out`");
-				else if (Numargs > 3)
-					throw new Exception("Too many args to Rerude");
+				throw new Exception("Missing args `Mode`, `In` and `Out`");
+			else if (Numargs == 1) {
+				if (Args[0].Equals("help", StringComparison.CurrentCultureIgnoreCase)) {
+					WriteLine("Rerudec created and developed by Rerumu");
+					WriteLine("Credits to creators of NLua for my usage of their compiler here");
+					WriteLine("Options->");
+					WriteLine("Cpl  - Compile a script", ConsoleColor.Gray);
+					WriteLine("Asm  - Assemble a disassembled file to bytecode", ConsoleColor.Gray);
+					WriteLine("Dis  - Disassemble a file to Lua assembly", ConsoleColor.Gray);
+					WriteLine("Help - This message", ConsoleColor.Gray);
+					WriteLine("NOTE: NLua is used to compile code, and without it, Rerudec works only on 5.1 bytecode", ConsoleColor.Gray);
 
-				Commandlined(Args[0], Args[1], Args[2]);
+					return;
+				}
+				else
+					throw new Exception("Missing args `In` and `Out`");
+			}
+			else if (Numargs == 2)
+				throw new Exception("Missing arg `Out`");
+			else if (Numargs > 3)
+				throw new Exception("Too many args to Rerude");
+
+			Watcher = new Stopwatch();
+			Watcher.Start();
+
+			try {
+				Commandlined(Args[0].ToLower(), Args[1], Args[2]);
+
+				Watcher.Stop();
+				WriteLine($"Operation took {Watcher.ElapsedMilliseconds}ms");
+			}
+			catch (Exception E) {
+				Watcher.Stop();
+				WriteLine(E.Message, ConsoleColor.Red);
+				WriteLine(E.StackTrace, ConsoleColor.White);
 			}
 		}
 	}

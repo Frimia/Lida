@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
-using System.IO;
 using Relua;
 using static Relua.Data;
 
@@ -205,16 +204,16 @@ namespace Rerulsd {
 			}
 		}
 
-		public byte[] AsArray(string FileName) {
-			Lines = File.ReadAllLines(FileName, RealASCII);
+		public byte[] AsArray(string[] Lns) {
 			Protos = new List<LuaProto>();
 			Tokens = new List<Token>();
+			Lines = Lns;
 
 			SanitizeLns();
 			ParseLns();
 
 			if (Protos.Count != 0)
-				return new LuaProto_D(Protos[0]).Dump(); // Make sure you have this enabled in the core
+				return new LuaProto_D(Protos[0]).Dump();
 			else
 				throw new Exception("File could not be parsed");
 		}
