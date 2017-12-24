@@ -4,7 +4,7 @@ Rerudec is a "standalone" C# library made for tweaking and visualizing the Lua b
 The library currently contains tools to disassemble bytecode out into an assembly-like style, and a way to get that assembly back into code.
 The following should be noted:
 
-1. The library is "standalone" as in all the code required is open source, with it being only 1 real dependency
+1. The library is "standalone" as in all the code required is open source, with it being only 1 real dependency, the also open source [CSLuaCore](https://github.com/Rerumu/CSLuaCore), by me.
 2. Despite NLua being listed as a dependency, it's only if you wish to use this test implementation, due to needing a way to compile, as the underlying libraries do not use it
 3. All of the **necessary** code for the library to work is made by me
 4. While the majority of the code is either self explanatory or documented, I suck at both of those
