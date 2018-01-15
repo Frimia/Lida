@@ -295,12 +295,12 @@ namespace Rerulsd {
 							Struct.Set(0);
 						else {
 							int Max = A + B - 1;
-							int[] SkipA = new int[Max + 1]; // Placeholder
+							int[] SkipA = new int[Max - A]; // Placeholder
 
 							for (int Idx = Max; Idx > A; Idx--) {
 								int LastArg = WhereWrote(Idx);
 								
-								SkipA[Idx] = LastArg;
+								SkipA[Idx - A - 1] = LastArg;
 								Struct.Set(LastArg);
 							}
 

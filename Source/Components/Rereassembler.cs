@@ -35,9 +35,8 @@ namespace Rerulsd {
 		List<Token> Tokens;
 		String[] Lines;
 
-		string ParseStringTok(string Tok) { // Nasty way of doing this, but I can't think of better
-			StringBuilder String = new StringBuilder(Tok.Length - 1);
-			string Str = Tok.Substring(1);
+		string ParseStringTok(string Str) { // Nasty way of doing this, but I can't think of better
+			StringBuilder String = new StringBuilder(Str.Length);
 			bool Esc = false;
 
 			for (int Idx = 0; Idx < Str.Length; Idx++) {
