@@ -22,18 +22,20 @@ using NLua;
  *		* ReluaCore
  */
 
-// Program.cs : Only makes usage of commandline and NLua, Rerude itself is only dependant on Components
+// Program.cs : Only makes usage of the Ui and NLua, Rerude itself is only dependant on the core
 namespace Rerulsd {
 	static class Program { // This is for testing stuff, just loads in some bytecode
 		enum OutputType {
 			COMPILE,
 			ASSEMBLE,
-			DISASSEMBLE
+			DISASSEMBLE,
+			SOFT_DECOMPILE
 		}
 
 		static DisReader LuReader = new DisReader();
 		static Lua Parser = new Lua();
-		
+		static LuaFunction Compiler;
+
 		static byte[] AsSource(OutputType Type, byte[] Bytecode) { // This is a mess but readable ok
 			LuaProto_S Prototype = new LuaProto_S(Bytecode);
 			string Source;
@@ -47,60 +49,51 @@ namespace Rerulsd {
 					Source = Disas.GetSource(0);
 
 					break;
+				case OutputType.SOFT_DECOMPILE:
+					LuaSoftDecompile Soft = new LuaSoftDecompile(Prototype);
+
+					Source = Soft.GetSource(0);
+
+					break;
 				default:
 					throw new NotImplementedException();
 			}
 
-			return Encoding.UTF8.GetBytes(Source);
+			return Data.RealASCII.GetBytes(Source);
 		}
 
 		static void ToFile(byte[] Content, string Path) {
+			if (Content.Length == 0) {
+				WriteLine("Failed to save empty file", ConsoleColor.Red);
+
+				return;
+			}
+
 			FileStream Dump = File.Create(Path, Content.Length);
 
 			Dump.Write(Content, 0, Content.Length);
 			Dump.Close();
-
-			WriteLine("File saved", ConsoleColor.Green);
 		}
 
-		static byte[] FileBytes(string FileName, bool IsSource) {
+		static byte[] FileBytes(string FileName) {
+			byte[] Bytecode = File.ReadAllBytes(FileName);
 			string Source;
-			string NameOf;
-			byte[] Bytecode;
 
-			if (IsSource) { // Did we pass the actual code?
-				NameOf = "Rerude";
-				Source = FileName;
-			}
+			if (Bytecode.Length == 0)
+				throw new Exception("File was empty");
+
+			if (Bytecode[0] == 27)
+				return Bytecode;
 			else {
-				NameOf = FileName;
-				Bytecode = File.ReadAllBytes(FileName);
+				StringBuilder Sobuild = new StringBuilder(Bytecode.Length);
 
-				if (Bytecode[0] == 27) {
-					WriteLine("File detected as bytecode", ConsoleColor.Yellow);
+				for (long Idx = 0; Idx < Bytecode.Length; Idx++)
+					Sobuild.Append((char) Bytecode[Idx]);
 
-					return Bytecode;
-				}
-				else {
-					StringBuilder Sobuild = new StringBuilder(Bytecode.Length);
-
-					for (long Idx = 0; Idx < Bytecode.Length; Idx++)
-						Sobuild.Append((char) Bytecode[Idx]);
-
-					Source = Sobuild.ToString();
-				}
+				Source = Sobuild.ToString();
 			}
 
-			Parser.DoString($@"
-				local Ran, Error = loadstring([===[{Source}]===], [[{NameOf}]]);
-
-				if Ran then
-					Result = string.dump(Ran);
-				else
-					error(Error);
-				end;
-			");
-
+			Compiler.Call(Source, FileName);
 			Source = Parser["Result"] as string;
 
 			if (Source == null)
@@ -137,6 +130,10 @@ namespace Rerulsd {
 					Type = OutputType.DISASSEMBLE;
 
 					break;
+				case "soft":
+					Type = OutputType.SOFT_DECOMPILE;
+
+					break;
 				default:
 					throw new ArgumentException("Parameter not recognized", "Method");
 			}
@@ -148,57 +145,77 @@ namespace Rerulsd {
 				WriteLine($"Bytecode size of {Files.LongLength} bytes", ConsoleColor.Yellow);
 			}
 			else {
-				Files = FileBytes(Input, false);
+				Files = FileBytes(Input);
 
 				WriteLine($"Bytecode size of {Files.LongLength} bytes", ConsoleColor.Yellow);
 				Files = AsSource(Type, Files);
 			}
-
-			WriteLine("Saving file result", ConsoleColor.Yellow);
+			
 			ToFile(Files, Output);
 		}
 
 		static void Main(string[] Args) {
 			int Numargs = Args.Length;
+			int Iterator = 0;
 			Stopwatch Watcher;
 
-			if (Numargs <= 0)
-				throw new Exception("Missing args `Mode`, `In` and `Out`");
-			else if (Numargs == 1) {
-				if (Args[0].Equals("help", StringComparison.CurrentCultureIgnoreCase)) {
-					WriteLine("Rerudec created and developed by Rerumu");
-					WriteLine("Credits to creators of NLua for my usage of their compiler here");
-					WriteLine("Options->");
-					WriteLine("Cpl  - Compile a script", ConsoleColor.Gray);
-					WriteLine("Asm  - Assemble a disassembled file to bytecode", ConsoleColor.Gray);
-					WriteLine("Dis  - Disassemble a file to Lua assembly", ConsoleColor.Gray);
-					WriteLine("Help - This message", ConsoleColor.Gray);
-					WriteLine("NOTE: NLua is used to compile code, and without it, Rerudec works only on 5.1 bytecode", ConsoleColor.Gray);
+			Compiler = Parser.LoadString(@"
+				local Ran, Error = loadstring(...);
 
-					return;
-				}
+				if Ran then
+					Result = string.dump(Ran);
 				else
-					throw new Exception("Missing args `In` and `Out`");
-			}
-			else if (Numargs == 2)
-				throw new Exception("Missing arg `Out`");
-			else if (Numargs > 3)
-				throw new Exception("Too many args to Rerude");
+					error(Error);
+				end;
+			", "Rerudec");
 
-			Watcher = new Stopwatch();
-			Watcher.Start();
+			while (Numargs != 0) {
+				if (Numargs == 1) {
+					if (Args[Iterator].Equals("help", StringComparison.CurrentCultureIgnoreCase)) {
+						WriteLine("Rerudec created and developed by Rerumu");
+						WriteLine("Credits to creators of NLua for my usage of their compiler here");
+						WriteLine("Options->");
+						WriteLine("Cpl  - Compile a script", ConsoleColor.Gray);
+						WriteLine("Asm  - Assemble a disassembled file to bytecode", ConsoleColor.Gray);
+						WriteLine("Dis  - Disassemble a file to Lua assembly", ConsoleColor.Gray);
+						WriteLine("Soft - [WIP] Decompile a bytecode file", ConsoleColor.Gray);
+						WriteLine("Help - This message", ConsoleColor.Gray);
+						WriteLine("NOTE: NLua is used to compile code, and without it, Rerudec works only on 5.1 bytecode", ConsoleColor.Gray);
 
-			try {
-				Commandlined(Args[0].ToLower(), Args[1], Args[2]);
+						return;
+					}
+					else
+						throw new Exception("Missing args `In` and `Out`");
+				}
+				else if (Numargs == 2)
+					throw new Exception("Missing arg `Out`");
 
-				Watcher.Stop();
-				WriteLine($"Operation took {Watcher.ElapsedMilliseconds}ms");
+				Watcher = new Stopwatch();
+				Watcher.Start();
+
+#if IS_TRY_CATCH
+				try {
+#endif
+					Commandlined(Args[Iterator].ToLower(), Args[Iterator + 1], Args[Iterator + 2]);
+
+					Watcher.Stop();
+
+					WriteLine(String.Join(" ", Args[Iterator], Args[Iterator + 1], Args[Iterator + 2]), ConsoleColor.DarkCyan);
+					WriteLine($"Operation took {Watcher.ElapsedMilliseconds}ms");
+#if IS_TRY_CATCH
+				}
+				catch (Exception E) {
+					Watcher.Stop();
+					WriteLine(E.Message, ConsoleColor.Red);
+					WriteLine(E.StackTrace, ConsoleColor.White);
+				}
+#endif
+				Numargs -= 3;
+				Iterator += 3;
 			}
-			catch (Exception E) {
-				Watcher.Stop();
-				WriteLine(E.Message, ConsoleColor.Red);
-				WriteLine(E.StackTrace, ConsoleColor.White);
-			}
+#if !IS_TRY_CATCH
+			Console.ReadLine(); // Yield for testing
+#endif
 		}
 	}
 }

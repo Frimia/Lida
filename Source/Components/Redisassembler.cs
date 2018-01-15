@@ -20,8 +20,6 @@ namespace Rerulsd {
 
 			Result.ReruAppend(Level, true, $".function {Serial.Stack} {Serial.NumArgs} {Serial.Vararg} \"{Serial.Name}\""); // Declaration
 			Result.ReruAppend(Level, true, $"; function {Serial}\n");
-			Result.ReruAppend(Level, true, $"; parent {Parent}");
-			Result.ReruAppend(Level, true, $"; params {Serial.NumArgs}, upvalues {Serial.NumUpvals}, {(Serial.Vararg == 0 ? "not" : "is")} vararg\n");
 
 			Result.Remove(0, 1); // Newline
 		}
@@ -41,7 +39,7 @@ namespace Rerulsd {
 			for (int Index = 0; Index < NumLocals; Index++) {
 				LuaLocal Local = Regists[Index];
 
-				Result.ReruAppend(Level, true, Spaced($".local \"{Local.Name}\"", 24) + $"; {Index}, {(Local.Arg ? "argument" : "normal")}");
+				Result.ReruAppend(Level, true, Spaced($".local \"{Local.Name}\"", 24) + $"; {Index}{(Local.Arg ? ", argument" : "")}");
 			}
 		}
 
@@ -283,7 +281,7 @@ namespace Rerulsd {
 						if (NB == 0)
 							Parse = "... (?)";
 						else
-							Parse = $"... ({NB})";
+							Parse = $"... ({NB - 1})";
 
 						break;
 					default:
@@ -298,7 +296,7 @@ namespace Rerulsd {
 				Result.ReruAppend(Level, true, Raw);
 			}
 
-			Result.ReruAppend(Level, true, $".end ; {Serial}");
+			Result.ReruAppend(Level, true, ".end");
 
 			return Result.ToString();
 		}

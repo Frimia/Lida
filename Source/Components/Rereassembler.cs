@@ -35,6 +35,76 @@ namespace Rerulsd {
 		List<Token> Tokens;
 		String[] Lines;
 
+		string ParseStringTok(string Tok) { // Nasty way of doing this, but I can't think of better
+			StringBuilder String = new StringBuilder(Tok.Length - 1);
+			string Str = Tok.Substring(1);
+			bool Esc = false;
+
+			for (int Idx = 0; Idx < Str.Length; Idx++) {
+				char Strc = Str[Idx];
+
+				if (Strc == '\\') {
+					Esc = !Esc;
+
+					if (Esc) {
+						byte Skips = 0;
+						byte Sz = 0;
+
+						for (int Idz = 0; Idz < 3; Idz++) {
+							char Leading = Str[Idx + Idz + 1];
+
+							if (Char.IsDigit(Leading)) {
+								Sz += (byte) (10 ^ (2 - Idz) * Convert.ToByte(Leading));
+
+								Skips++;
+							}
+							else
+								break;
+						}
+
+						if (Skips != 0) {
+							String.Append(Convert.ToChar(Sz));
+
+							Idx += Skips;
+						}
+						else {
+							char Next = Str[Idx + 1];
+
+							switch (Next) {
+								case 'b':
+									String.Append('\b');
+
+									break;
+								case 'n':
+									String.Append('\n');
+
+									break;
+								case 'r':
+									String.Append('\r');
+
+									break;
+								case 't':
+									String.Append('\t');
+
+									break;
+								default:
+									String.Append(Next);
+
+									break;
+							}
+						}
+					}
+				}
+				else {
+					String.Append(Strc);
+
+					Esc = false;
+				}
+			}
+
+			return String.ToString();
+		}
+
 		void ParseTok(string Tok) {
 			Token New = new Token();
 
@@ -67,7 +137,7 @@ namespace Rerulsd {
 				}
 				else if (Tok.StartsWith("\"")) {
 					if (Tok.Length != 1)
-						Const = Tok.Substring(1);
+						Const = ParseStringTok(Tok.Substring(1));
 					else
 						Const = "";
 				}

@@ -107,6 +107,27 @@ namespace Rerulsd {
 		}
 	}
 
+	class TrackData { // Added to ignore unexpected errors
+		public int[] Tracked;
+
+		public TrackData(int Size) {
+			Tracked = MakeArray(0, Size);
+		}
+
+		public int this[int Index] {
+			get {
+				if (Tracked.Length > Index)
+					return Tracked[Index];
+				else
+					return 0;
+			}
+			set {
+				if (Tracked.Length > Index)
+					Tracked[Index] = value;
+			}
+		}
+	}
+
 	abstract class LuaResult {
 		protected LuaProto Serial;
 		protected List<LuaLocal> Regists;
@@ -154,8 +175,8 @@ namespace Rerulsd {
 			bool[] Local = MakeArray(false, StkSize);
 			bool[] Temp = MakeArray(false, StkSize);
 
-			int[] Read = MakeArray(0, StkSize);
-			int[] Write = MakeArray(0, StkSize);
+			TrackData Read = new TrackData(StkSize);
+			TrackData Write = new TrackData(StkSize);
 
 			Regists = new List<LuaLocal>();
 
@@ -203,17 +224,17 @@ namespace Rerulsd {
 						break;
 					case LuaOpcode.SETGLOBAL:
 					case LuaOpcode.SETUPVAL:
+					case LuaOpcode.SETTABLE:
 						Read[A]++;
 
 						break;
-					case LuaOpcode.SETTABLE:
 					case LuaOpcode.ADD:
 					case LuaOpcode.SUB:
 					case LuaOpcode.MUL:
 					case LuaOpcode.DIV:
 					case LuaOpcode.MOD:
 					case LuaOpcode.POW:
-						Read[A]++;
+						Write[A]++;
 
 						if (IsRegist(B))
 							Read[B]++;
@@ -278,11 +299,13 @@ namespace Rerulsd {
 
 							if (Idx < Instrs.Count) { // Otherwise, from above stack
 								if (Instrs[Idx].Opcode == LuaOpcode.MOVE)
-									Local[Instrs[Idx].A] = true;
+									Local[Instrs[Idx].B] = true;
 
 								Skips[Idx] = true;
 							}
 						}
+
+						Write[A]++;
 
 						break;
 					case LuaOpcode.CALL:
@@ -343,26 +366,17 @@ namespace Rerulsd {
 					Name = "A";
 				}
 
-				/*if (!IsLocal && !IsTemp) {
-					IsLocal = true;
-					//int Reads = Read[Progc];
+				if (!IsLocal)
+					IsLocal = Write[Progc] != 0;
+				
+				if (IsLocal || !IsTemp) {
+					LuaLocal Declaration = Locals[Progb];
 
-					//IsLocal = (Reads > 1 || Reads == 0);
-				}*/
-
-				if ((Read[Progc] != 0) || (Write[Progc] != 0))
-					IsLocal = true;
-
-				if (IsLocal) {
-					LuaLocal Declaration = new LuaLocal {
-						Arg = Name.Equals("A")
-					};
-
-					if (Progb < Locals.Count)
-						Declaration.Name = Locals[Progb].Name;
-					else
-						Declaration.Name = Name + Progc + "_" + Progb;
-
+					if (Declaration.Name == null) {
+						Declaration.Name = $"{Name}{Progb}_{Progc}";
+						Locals[Progb] = Declaration;
+					}
+					
 					Progb++;
 					Regists.Add(Declaration);
 				}
