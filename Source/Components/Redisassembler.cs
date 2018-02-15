@@ -1,81 +1,106 @@
-﻿using System;
+﻿using Relua;
+using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using Relua;
 using static Relua.Data;
 
 // Rerudec.cs : Standalone disassembler and (wip) decompiler
 namespace Rerulsd {
 	using static ReruData;
-	
+
 	class LuaDisassembly : LuaResult {
-		public LuaDisassembly(LuaProto Subject) {
-			if (Subject != null)
-				Set(Subject);
-		}
+		private List<LuaDisassembly> Preprotos;
+
+		public LuaDisassembly(LuaProto Subject) : base(Subject) {}
 
 		void DeclareHeader(int Level) {
-			string Parent = Serial.Parent == null ? "None" : Serial.Parent.Name;
+			string Data = Proto.ToString().Substring(Proto.Name.Length + 2);
 
-			Result.ReruAppend(Level, true, $".function {Serial.Stack} {Serial.NumArgs} {Serial.Vararg} \"{Serial.Name}\""); // Declaration
-			Result.ReruAppend(Level, true, $"; function {Serial}\n");
+			Source.AlignedAppend(Level, true, $".function {Proto.Defined[0]} {Proto.Defined[1]} \"{Proto.Name}\" ;{Data}"); // Declaration
 
-			Result.Remove(0, 1); // Newline
+			if (Proto.Stack != 0) // Should NEVER be
+				Source.AlignedAppend(Level, true, ".stack " + Proto.Stack);
+			if (Proto.NumArgs != 0)
+				Source.AlignedAppend(Level, true, ".numparams " + Proto.NumArgs);
+			if (Proto.NumUpvals != 0)
+				Source.AlignedAppend(Level, true, ".nups " + Proto.NumUpvals);
+			if (Proto.Vararg != 0)
+				Source.AlignedAppend(Level, true, ".vararg " + Proto.Vararg);
+
+			Source.Remove(0, 1);
 		}
 
 		void DeclareProtoHeaders(int Level) {
-			if (Wrappeds.Count != 0) {
-				Result.ReruAppend(Level, true, "; Sub-function(s) list");
+			if (Subprotos.Count != 0) {
+				Preprotos = new List<LuaDisassembly>(Subprotos.Count);
 
-				for (int Index = 0; Index < Wrappeds.Count; Index++)
-					Result.ReruAppend(Level, true, $"; function {Wrappeds[Index]}");
+				Source.AppendLine();
 
-				Result.AppendLine();
+				for (int Index = 0; Index < Subprotos.Count; Index++) {
+					Preprotos.Add(new LuaDisassembly(Subprotos[Index]));
+
+					Source.AlignedAppend(Level + 1, true, $"; function {Subprotos[Index]}");
+				}
 			}
 		}
 
-		void DeclareLocals(int Level, int NumLocals) {
-			for (int Index = 0; Index < NumLocals; Index++) {
-				LuaLocal Local = Regists[Index];
+		void DeclareLocals(int Level) {
+			if (Locals.Size != 0) {
+				Source.AppendLine();
 
-				Result.ReruAppend(Level, true, Spaced($".local \"{Local.Name}\"", 24) + $"; {Index}{(Local.Arg ? ", argument" : "")}");
+				for (int Index = 0; Index < Locals.Size; Index++) {
+					string Name = '"' + Locals[Index] + '"';
+					int S = 0,
+						E = 0;
+
+					if (Index < Proto.Locals.Count) {
+						S = Proto.Locals[Index].Startpc;
+						E = Proto.Locals[Index].Endpc;
+					}
+
+					if (Index < Proto.NumArgs)
+						Name = Name.PadRight(12);
+
+					Source.AlignedAppend(Level, true, String.Format(".local {0} {1} {2}{3}", S, E, Name, Index < Proto.NumArgs ? "; argument" : ""));
+				}
 			}
 		}
 
 		void DeclareUpvalues(int Level) {
-			for (int Index = 0; Index < Serial.NumUpvals; Index++)
-				Result.ReruAppend(Level, true, Spaced($".upvalue \"{Upvalues[Index]}\"", 24) + $"; {Index}");
-		}
+			if (Upvalues.Size != 0) {
+				Source.AppendLine();
 
-		void DeclareConstants(int Level) {
-			for (int Index = 0; Index < Consts.Count; Index++)
-				Result.ReruAppend(Level, true, Spaced($".const {Consts[Index]}", 24) + $"; {Index}");
-		}
-
-		void DeclareProtos(int Level) {
-			for (int Index = 0; Index < Wrappeds.Count; Index++) {
-				LuaProto Wrap = Wrappeds[Index];
-				string Source = new LuaDisassembly(Wrap).GetSource(Level + 1);
-				
-				Result.ReruAppend(0, true, $"\n{Source}");
+				for (int Index = 0; Index < Upvalues.Size; Index++)
+					Source.AlignedAppend(Level, true, $".upvalue \"{Upvalues[Index]}\"");
 			}
 		}
 
-		// Disassembler state : Complete
-		public override string GetSource(int Level) {
-			int NumLocals = Regists.Count;
+		void DeclareConstants(int Level) {
+			if (Consts.Count != 0) {
+				Source.AppendLine();
 
-			Result = new StringBuilder();
+				for (int Index = 0; Index < Consts.Count; Index++)
+					Source.AlignedAppend(Level, true, $".const {Consts[Index]}");
+			}
+		}
 
-			DeclareHeader(Level);
-			DeclareProtoHeaders(Level);
-			DeclareLocals(Level, NumLocals);
-			DeclareUpvalues(Level);
-			DeclareConstants(Level);
-			DeclareProtos(Level);
+		void DeclareProtos(int Level) {
+			if (Preprotos == null)
+				return;
 
-			Result.AppendLine();
+			Source.AppendLine();
+
+			for (int Index = 0; Index < Preprotos.Count; Index++) {
+				string Sub = Preprotos[Index].GetSource(Level + 1);
+				
+				Source.AlignedAppend(0, true, Sub);
+			}
+		}
+
+		void DeclareInstructions(int Level, StringBuilder Text) {
+			int LA = 3,
+				LB = 3,
+				LC = 5;
 
 			for (int Index = 0; Index < Instrs.Count; Index++) {
 				LuaInstruct Instr = Instrs[Index];
@@ -84,69 +109,77 @@ namespace Rerulsd {
 				int NA = Instr.A,
 					NB = Instr.B,
 					NC = Instr.C;
+				
+				LA = Math.Max(LA, NA.ToString().Length + 2);
+				LB = Math.Max(LB, NB.ToString().Length + 2);
+				LC = Math.Max(LC, NC.ToString().Length + 4);
 
-				string A = LocalAt(NA),
-					B = LocalAt(NB),
-					C = LocalAt(NC);
-
-				string Raw = $"/0x{Index:X2}/ ({Serial.Lines[Index]:D4}) {Spaced(Instr.Opcode, 12)}{Spaced((NA == 0) ? "-" : $"{NA}", 3)} {Spaced((NB == 0) ? "-" : $"{NB}", 3)} {Spaced((NC == 0) ? "-" : $"{NC}", 3)}";
+				string Line = Index < Proto.Lines.Count ? "(" + Proto.Lines[Index].ToString().PadLeft(3, '0') + ") " : String.Empty;
+				string Raw = String.Format("/0x{0:X2}/ {1}{2}{3}{4}{5}",
+					Index,
+					Line,
+					Instr.Opcode.ToString().PadRight(12),
+					((NA == 0) ? "-" : $"{NA}").PadRight(LA),
+					((NB == 0) ? "-" : $"{NB}").PadRight(LB),
+					((NC == 0) ? "-" : $"{NC}").PadRight(LC)
+					);
 
 				switch (Instr.Opcode) {
 					case LuaOpcode.MOVE:
-						Parse = $"{A} := {B}";
+						Parse = $"{Locals[NA]} := {Locals[NB]}";
 
 						break;
 					case LuaOpcode.LOADK:
-						Parse = $"{A} := {Consts[NB]}";
+						Parse = $"{Locals[NA]} := {Consts[NB]}";
 
 						break;
 					case LuaOpcode.LOADBOOL:
-						Parse = $"{A} := {(NB != 0).ToString().ToLower()}";
+						Parse = $"{Locals[NA]} := {(NB != 0).ToString().ToLower()}";
 
 						break;
 					case LuaOpcode.LOADNIL:
-						if (A == B)
-							Parse = $"{A} := nil";
+						if (NA == NB)
+							Parse = $"{Locals[NA]} := nil";
 						else
 							Parse = $"R({NA}) to R({NB}) := nil";
 
 						break;
 					case LuaOpcode.GETUPVAL:
-						Parse = $"{A} := Upvalue[\"{Upvalues[NB]}\"]";
+						Parse = $"{Locals[NA]} := Upvalue[\"{Upvalues[NB]}\"]";
 
 						break;
 					case LuaOpcode.GETGLOBAL:
-						Parse = $"{A} := Gbl[{Consts[NB]}]";
+						Parse = $"{Locals[NA]} := Gbl[{Consts[NB]}]";
 
 						break;
 					case LuaOpcode.GETTABLE:
-						Parse = $"{A} := {B}[{RegOrConst(NC)}]";
+						Parse = $"{Locals[NA]} := {Locals[NB]}[{RegOrConst(NC)}]";
 
 						break;
 					case LuaOpcode.SETGLOBAL:
-						Parse = $"Gbl[{Consts[NB]}] = {A}";
+						Parse = $"Gbl[{Consts[NB]}] = {Locals[NA]}";
 
 						break;
 					case LuaOpcode.SETUPVAL:
-						Parse = $"Upvalue[\"{Upvalues[NB]}\"] := {A}";
+						Parse = $"Upvalue[\"{Upvalues[NB]}\"] := {Locals[NA]}";
 
 						break;
 					case LuaOpcode.SETTABLE:
-						Parse = $"{A}[{RegOrConst(NB)}] := {RegOrConst(NC)}";
+						Parse = $"{Locals[NA]}[{RegOrConst(NB)}] := {RegOrConst(NC)}";
 
 						break;
 					case LuaOpcode.NEWTABLE:
-						Parse = $"{A} = Array : {NB}, Hash : {NC}";
+						Parse = $"{Locals[NA]} = Array : {NB}, Hash : {NC}";
 
 						break;
 					case LuaOpcode.SELF:
-						Parse = $"{A} := {B}[{RegOrConst(NC)}]";
+						Parse = $"{Locals[NA]} := {Locals[NB]}[{RegOrConst(NC)}]";
 
 						break;
 					case LuaOpcode.UNM:
 					case LuaOpcode.NOT:
 					case LuaOpcode.LEN:
-						Parse = $"{A} := {SymbolOf(Instr.Opcode)}{B}";
+						Parse = $"{Locals[NA]} := {SymbolOf(Instr.Opcode)}{Locals[NB]}";
 
 						break;
 					case LuaOpcode.ADD:
@@ -159,7 +192,7 @@ namespace Rerulsd {
 					case LuaOpcode.EQ:
 					case LuaOpcode.LT:
 					case LuaOpcode.LE:
-						Parse = $"{A} := {RegOrConst(NB)}{SymbolOf(Instr.Opcode)}{RegOrConst(NC)}";
+						Parse = $"{Locals[NA]} := {RegOrConst(NB)}{SymbolOf(Instr.Opcode)}{RegOrConst(NC)}";
 
 						break;
 					case LuaOpcode.JMP:
@@ -170,26 +203,26 @@ namespace Rerulsd {
 						LuaInstruct Next = Instrs[Index + 2];
 
 						if (Next.Opcode == LuaOpcode.TEST)
-							Parse = $"{A} {(NC == 0 ? "and" : "or")} PC(0x{Index + 2:X2})";
+							Parse = $"{Locals[NA]} {(NC == 0 ? "and" : "or")} PC(0x{Index + 2:X2})";
 						else
-							Parse = $"if not {A}";
+							Parse = $"if not {Locals[NA]}";
 
 						break;
 					case LuaOpcode.TESTSET:
 						LuaInstruct SetNext = Instrs[Index + 2];
 
-						Parse = $"{A} = {B} {(NC == 0 ? "and" : "or")} PC(0x{Index + 2:X2})";
+						Parse = $"{Locals[NA]} = {Locals[NB]} {(NC == 0 ? "and" : "or")} PC(0x{Index + 2:X2})";
 
 						break;
 					case LuaOpcode.CALL:
-						Parse = $"Call {A}";
+						Parse = $"Call {Locals[NA]}";
 
 						if (NB == 0)
 							Parse += $", params R({NA + 1}) to top";
 						else if (NB == 1)
 							Parse += ", no params";
 						else if (NB == 2)
-							Parse += $", param {LocalAt(NA + 1)}";
+							Parse += $", param {Locals[NA + 1]}";
 						else
 							Parse += $", params R({NA + 1}) to R({NA + NB - 1})";
 
@@ -202,14 +235,14 @@ namespace Rerulsd {
 
 						break;
 					case LuaOpcode.TAILCALL:
-						Parse = $"Tailcall {A}";
+						Parse = $"Tailcall {Locals[NA]}";
 
 						break;
 					case LuaOpcode.RETURN:
 						if (NB == 1)
 							Parse = "Return nothing";
 						else if (NB == 2)
-							Parse = $"Return {A}";
+							Parse = $"Return {Locals[NA]}";
 						else if (NB > 1)
 							Parse = $"Return R({NA}) to R({NA + NB - 2})";
 						else
@@ -229,7 +262,17 @@ namespace Rerulsd {
 
 						break;
 					case LuaOpcode.SETLIST:
-						Parse = $"List at {A}";
+						Parse = $"List at {Locals[NA]}";
+
+						if (NC == 0) {
+							Index++;
+							
+							Parse = Parse
+								+ ", as extended setlist\n"
+								+ new string('\t', Level + 1)
+								+ ".raw "
+								+ Instrs[Index].Instr;
+						}
 
 						break;
 					case LuaOpcode.CLOSE:
@@ -237,7 +280,7 @@ namespace Rerulsd {
 
 						break;
 					case LuaOpcode.CLOSURE:
-						LuaProto Clos = Wrappeds[NB];
+						LuaProto Clos = Subprotos[NB];
 						StringBuilder ProtoIfn = new StringBuilder();
 						int Skips = 0;
 
@@ -246,7 +289,7 @@ namespace Rerulsd {
 							string Type;
 
 							if (Upval.Opcode == LuaOpcode.MOVE)
-								Type = $"; (0x{Index + Idx + 1:X2}) > Local upvalue ({Upval.B}) \"{LocalAt(Upval.B)}\"";
+								Type = $"; (0x{Index + Idx + 1:X2}) > Local upvalue ({Upval.B}) \"{Locals[Upval.B]}\"";
 							else if (Upval.Opcode == LuaOpcode.GETUPVAL)
 								Type = $"; (0x{Index + Idx + 1:X2}) > Upvalue ({Upval.B}) \"{Upvalues[Upval.B]}\"";
 							else
@@ -254,7 +297,7 @@ namespace Rerulsd {
 
 							Skips++;
 
-							ProtoIfn.ReruAppend(Level + 1, true, Type);
+							ProtoIfn.AlignedAppend(Level + 1, true, Type);
 						}
 
 						if (Skips != 0)
@@ -262,7 +305,7 @@ namespace Rerulsd {
 
 						if ((Index + Skips + 1) < Instrs.Count) {
 							LuaInstruct Namer = Instrs[Index + Skips + 1];
-							string Name = A;
+							string Name = Locals[NA];
 
 							if (Namer.A == NA) {
 								if (Namer.Opcode == LuaOpcode.SETGLOBAL)
@@ -270,7 +313,7 @@ namespace Rerulsd {
 								else if (Namer.Opcode == LuaOpcode.SETUPVAL)
 									Name = Upvalues[Namer.B];
 							}
-							
+
 							ProtoIfn.Insert(0, $"{Name} := {Clos}");
 						}
 
@@ -291,14 +334,33 @@ namespace Rerulsd {
 				if (String.IsNullOrEmpty(Parse))
 					Raw = Raw.TrimEnd(' '); // Trim off excess
 				else
-					Raw = $"{Spaced(Raw, 30)}; {Parse}";
+					Raw = $"{Raw.PadRight(30)}; {Parse}";
 
-				Result.ReruAppend(Level, true, Raw);
+				Text.AlignedAppend(Level, true, Raw);
 			}
+		}
 
-			Result.ReruAppend(Level, true, ".end");
+		// Disassembler state : Complete
+		public override string GetSource(int Level) {
+			int NumLocals = Proto.Stack;
+			StringBuilder Text = new StringBuilder(Instrs.Count);
 
-			return Result.ToString();
+			Source = new StringBuilder();
+
+			// This is done first so it helps out with the actual definitions
+			DeclareInstructions(Level, Text);
+			DeclareHeader(Level);
+			DeclareProtoHeaders(Level);
+			DeclareLocals(Level);
+			DeclareUpvalues(Level);
+			DeclareConstants(Level);
+			DeclareProtos(Level);
+
+			Source.AppendLine();
+			Source.Append(Text);
+			Source.AlignedAppend(Level, true, ".end\n");
+
+			return Source.ToString();
 		}
 	}
 }

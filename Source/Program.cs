@@ -1,11 +1,10 @@
 ﻿#define IS_TRY_CATCH
 
+using Relua;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
-using System.Diagnostics;
-using Relua;
-using NLua;
 
 /* > Rerumu
  * Developer note:
@@ -14,27 +13,41 @@ using NLua;
  *	very unstable and should be expected to bug out randomly,
  *	I did a lot of stupid things in source but they worked oh well,
  *	and I'll keep doing more stupid things anyways to test
- *	
+ *
  *	implicit owner rights @ Rerumu
  *	source credit @ Rerumu
  *	dependencies
- *		* NLua
+ *		* luac.c in PATH
  *		* ReluaCore
  */
 
-// Program.cs : Only makes usage of the Ui and NLua, Rerude itself is only dependant on the core
+// Program.cs : Only makes usage of the Ui and compiling, Rerude itself is only dependant on the core
 namespace Rerulsd {
 	static class Program { // This is for testing stuff, just loads in some bytecode
 		enum OutputType {
 			COMPILE,
 			ASSEMBLE,
-			DISASSEMBLE,
-			SOFT_DECOMPILE
+			DISASSEMBLE
 		}
 
 		static DisReader LuReader = new DisReader();
-		static Lua Parser = new Lua();
-		static LuaFunction Compiler;
+
+		static byte[] Compile(string FileName) {
+			var Proc = new Process {
+				StartInfo = new ProcessStartInfo {
+					FileName = "luac.exe",
+					Arguments = $"-o {FileName}.out {FileName}",
+					UseShellExecute = false,
+					RedirectStandardOutput = false,
+					CreateNoWindow = true
+				}
+			};
+
+			Proc.Start();
+			Proc.WaitForExit();
+
+			return File.ReadAllBytes(FileName + ".out");
+		}
 
 		static byte[] AsSource(OutputType Type, byte[] Bytecode) { // This is a mess but readable ok
 			LuaProto_S Prototype = new LuaProto_S(Bytecode);
@@ -42,17 +55,14 @@ namespace Rerulsd {
 
 			switch (Type) {
 				case OutputType.COMPILE:
-					return Bytecode;
+					//Prototype.StripDebug(true);
+					Prototype.Analyze(true);
+
+					return new LuaProto_D(Prototype).Dump();
 				case OutputType.DISASSEMBLE:
 					LuaDisassembly Disas = new LuaDisassembly(Prototype);
 
 					Source = Disas.GetSource(0);
-
-					break;
-				case OutputType.SOFT_DECOMPILE:
-					LuaSoftDecompile Soft = new LuaSoftDecompile(Prototype);
-
-					Source = Soft.GetSource(0);
 
 					break;
 				default:
@@ -77,32 +87,12 @@ namespace Rerulsd {
 
 		static byte[] FileBytes(string FileName) {
 			byte[] Bytecode = File.ReadAllBytes(FileName);
-			string Source;
 
 			if (Bytecode.Length == 0)
 				throw new Exception("File was empty");
 
-			if (Bytecode[0] == 27)
-				return Bytecode;
-			else {
-				StringBuilder Sobuild = new StringBuilder(Bytecode.Length);
-
-				for (long Idx = 0; Idx < Bytecode.Length; Idx++)
-					Sobuild.Append((char) Bytecode[Idx]);
-
-				Source = Sobuild.ToString();
-			}
-
-			Compiler.Call(Source, FileName);
-			Source = Parser["Result"] as string;
-
-			if (Source == null)
-				throw new Exception("Failed to load bytecode");
-			else
-				Bytecode = new byte[Source.Length];
-
-			for (int Idx = 0; Idx < Source.Length; Idx++)
-				Bytecode[Idx] = ((byte) Source[Idx]);
+			if (Bytecode[0] != 27)
+				Bytecode = Compile(FileName);
 
 			return Bytecode;
 		}
@@ -112,7 +102,7 @@ namespace Rerulsd {
 			Console.Write(Message + (NewLine ? "\n" : ""));
 			Console.ForegroundColor = ConsoleColor.Gray;
 		}
-		
+
 		static void Commandlined(string Method, string Input, string Output) {
 			OutputType Type;
 			byte[] Files;
@@ -128,10 +118,6 @@ namespace Rerulsd {
 					break;
 				case "dis":
 					Type = OutputType.DISASSEMBLE;
-
-					break;
-				case "soft":
-					Type = OutputType.SOFT_DECOMPILE;
 
 					break;
 				default:
@@ -150,7 +136,7 @@ namespace Rerulsd {
 				WriteLine($"Bytecode size of {Files.LongLength} bytes", ConsoleColor.Yellow);
 				Files = AsSource(Type, Files);
 			}
-			
+
 			ToFile(Files, Output);
 		}
 
@@ -159,38 +145,23 @@ namespace Rerulsd {
 			int Iterator = 0;
 			Stopwatch Watcher;
 
-			Compiler = Parser.LoadString(@"
-				local Ran, Error = loadstring(...);
+			if (Numargs == 0) {
+				WriteLine("Rerudec created and developed by Rerumu");
+				WriteLine("Options->");
+				WriteLine("Cpl  - Compile a script", ConsoleColor.Gray);
+				WriteLine("Asm  - Assemble a disassembled file to bytecode", ConsoleColor.Gray);
+				WriteLine("Dis  - Disassemble a file to Lua assembly", ConsoleColor.Gray);
 
-				if Ran then
-					Result = string.dump(Ran);
-				else
-					error(Error);
-				end;
-			", "Rerudec");
+				return;
+			}
 
 			while (Numargs != 0) {
-				if (Numargs == 1) {
-					if (Args[Iterator].Equals("help", StringComparison.CurrentCultureIgnoreCase)) {
-						WriteLine("Rerudec created and developed by Rerumu");
-						WriteLine("Credits to creators of NLua for my usage of their compiler here");
-						WriteLine("Options->");
-						WriteLine("Cpl  - Compile a script", ConsoleColor.Gray);
-						WriteLine("Asm  - Assemble a disassembled file to bytecode", ConsoleColor.Gray);
-						WriteLine("Dis  - Disassemble a file to Lua assembly", ConsoleColor.Gray);
-						WriteLine("Soft - [WIP] Decompile a bytecode file", ConsoleColor.Gray);
-						WriteLine("Help - This message", ConsoleColor.Gray);
-						WriteLine("NOTE: NLua is used to compile code, and without it, Rerudec works only on 5.1 bytecode", ConsoleColor.Gray);
-
-						return;
-					}
-					else
-						throw new Exception("Missing args `In` and `Out`");
-				}
+				if (Numargs == 1)
+					throw new Exception("Missing args `In` and `Out`");
 				else if (Numargs == 2)
 					throw new Exception("Missing arg `Out`");
 
-				Watcher = new Stopwatch();
+				Watcher = new Stopwatch(); // Remember to include System assembly if this errors
 				Watcher.Start();
 
 #if IS_TRY_CATCH

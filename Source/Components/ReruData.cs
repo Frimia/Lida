@@ -1,17 +1,11 @@
-﻿using System;
+﻿using Relua;
+using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using Relua;
 using static Relua.Data;
 
 namespace Rerulsd {
-	using static ReruData;
-
 	static class ReruData {
-		public static ArrayType[] MakeArray<ArrayType>(ArrayType Input, int Size) =>
-			Enumerable.Repeat(Input, Size).ToArray();
-
 		public static string SymbolOf(LuaOpcode Me) {
 			switch (Me) {
 				case LuaOpcode.ADD:
@@ -47,17 +41,8 @@ namespace Rerulsd {
 			return " ? ";
 		}
 
-		public static string Spaced(object Me, int Length) { // For proper spacing
-			string Strm = Me.ToString();
-
-			return Strm + new string(' ', Length < Strm.Length ? 1 : Length - Strm.Length);
-		}
-
-		public static StringBuilder ReruAppend(this StringBuilder Me, int Times, bool Line, string String) =>
-			Me.Append($"{(Line ? "\n" : "")}{(Times == 0 ? "" : new string('\t', Times))}{String}"); // Lol.
-
-		public static bool IsRegist(int Idx) => // Is this a register (not constant)?
-			((Idx & 0x100) == 0);
+		public static StringBuilder AlignedAppend(this StringBuilder Me, int Times, bool Line, string String) =>
+			Me.Append((Line ? "\n" : "").PadRight(Times + 1, '\t') + String); // Lol.
 
 		public static string Sanitize(this string Dirty) { // Might be slow on long strings; I'll have to remake
 			StringBuilder Result = new StringBuilder();
@@ -107,284 +92,124 @@ namespace Rerulsd {
 		}
 	}
 
-	class TrackData { // Added to ignore unexpected errors
-		public int[] Tracked;
+	class StringMem {
+		private Dictionary<int, string> Mem;
+		private string Pref;
+		private int Off;
 
-		public TrackData(int Size) {
-			Tracked = MakeArray(0, Size);
+		public int Size {
+			get => Mem.Count;
 		}
 
-		public int this[int Index] {
-			get {
-				if (Tracked.Length > Index)
-					return Tracked[Index];
+		public string See(int Register, bool Caches) {
+			Mem.TryGetValue(Register, out string Ret);
+
+			if (Ret == null) {
+				if (Register < Off)
+					Ret = Pref;
 				else
-					return 0;
+					Ret = "VAR";
+
+				Ret = Ret + "_" + Register + "_";
+
+				if (Caches)
+					Mem[Register] = Ret;
 			}
-			set {
-				if (Tracked.Length > Index)
-					Tracked[Index] = value;
-			}
+
+			return Ret;
+		}
+
+		public string this[int Register] {
+			get => See(Register, true);
+		}
+
+		public StringMem(String[] L, string Prefix, int Offset = 0) {
+			Mem = new Dictionary<int, string>(L.Length);
+
+			for (int Idx = 0; Idx < L.Length; Idx++)
+				Mem[Idx] = L[Idx];
+
+			Pref = Prefix;
+			Off = Offset;
 		}
 	}
 
 	abstract class LuaResult {
-		protected LuaProto Serial;
-		protected List<LuaLocal> Regists;
-		protected StringBuilder Result;
-
-		protected List<LuaInstruct> Instrs = null;
-		protected List<LuaConstant> Consts = null;
-		protected List<LuaProto> Wrappeds = null;
-		protected List<LuaLocal> Locals = null;
-		protected List<string> Upvalues = null;
-
-		protected bool State;
-		protected bool Ready;
-
-		public void Set(LuaProto Subject) {
-			Instrs = Subject.Instructs;
-			Consts = Subject.Constants;
-			Wrappeds = Subject.Protos;
-			Upvalues = Subject.Upvalues;
-			Locals = Subject.Locals;
-
-			Serial = null;
-			State = false;
-			Ready = false;
-
-			Serial = Subject;
-
-			LuaDeclarations(); // Pre-declare stuff
-		}
-
-		public string LocalAt(int Index) =>
-			((Index >= 0) && (Index < Regists.Count)) ? Regists[Index].Name : Index.ToString();
+		protected LuaProto Proto;
+		protected StringMem Locals;
+		protected StringMem Upvalues;
+		protected StringBuilder Source;
+		// Bring up our Proto data
+		protected List<LuaInstruct> Instrs;
+		protected List<LuaConstant> Consts;
+		protected List<LuaProto> Subprotos;
 
 		protected LuaConstant RegOrConst(int Place) =>
-			IsRegist(Place) ? new LuaConstant(LuaType.FLUID, LocalAt(Place)) : Consts[Place - 0x100];
+			IsRegist(Place) ? new LuaConstant(LuaType.FLUID, Locals[Place]) : Proto.Constants[Place - 0x100];
 
-		private void LuaDeclarations() {
-			int Progc,
-				Progb;
+		// Propagates information about the proto to its children
+		private void Propagate() {
+			if (Proto.Protos.Count == 0)
+				return;
 
-			int StkSize = Serial.Stack;
-			int InsSize = Instrs.Count;
+			List<LuaInstruct> Instrs = Proto.Instructs;
 
-			bool[] Skips = MakeArray(false, InsSize);
-			bool[] Local = MakeArray(false, StkSize);
-			bool[] Temp = MakeArray(false, StkSize);
-
-			TrackData Read = new TrackData(StkSize);
-			TrackData Write = new TrackData(StkSize);
-
-			Regists = new List<LuaLocal>();
-
-			#region ScanDeclars Scans over the source for declarations
-
-			for (Progc = 0; Progc < InsSize; Progc++) { // Declarations
-				LuaInstruct Inst = Instrs[Progc];
-
-				if (Skips[Progc]) // Skipped
-					continue;
-
-				int A = Inst.A,
-					B = Inst.B,
-					C = Inst.C;
+			for (int Idx = 0; Idx < Instrs.Count; Idx++) {
+				LuaInstruct Inst = Instrs[Idx];
 
 				switch (Inst.Opcode) {
-					case LuaOpcode.MOVE:
-						Write[A]++;
-						Read[B]++;
+					case LuaOpcode.CLOSURE: // Handle *external upvalues*
+						LuaProto Sub = Proto.Protos[Inst.B];
 
-						Local[Math.Min(A, B)] = true;
+						if (Sub.NumUpvals != 0) {
+							List<String> Neups = new List<String>(Sub.Upvalues);
 
-						break;
-					case LuaOpcode.LOADK:
-					case LuaOpcode.LOADBOOL:
-					case LuaOpcode.GETUPVAL:
-					case LuaOpcode.GETGLOBAL:
-					case LuaOpcode.NEWTABLE:
-						Write[A]++;
+							for (int Upv = 0; Upv < Sub.NumUpvals; Upv++) { // Overwrite predefined upvalues, sync
+								LuaInstruct Udef = Sub.Instructs[Upv];
 
-						break;
-					case LuaOpcode.LOADNIL:
-						for (int RegIdx = A; RegIdx <= B; RegIdx++)
-							Write[RegIdx]++;
-
-						break;
-					case LuaOpcode.GETTABLE:
-						Write[A]++;
-
-						if (IsRegist(B))
-							Read[B]++;
-						if (IsRegist(C))
-							Read[C]++;
-
-						break;
-					case LuaOpcode.SETGLOBAL:
-					case LuaOpcode.SETUPVAL:
-					case LuaOpcode.SETTABLE:
-						Read[A]++;
-
-						break;
-					case LuaOpcode.ADD:
-					case LuaOpcode.SUB:
-					case LuaOpcode.MUL:
-					case LuaOpcode.DIV:
-					case LuaOpcode.MOD:
-					case LuaOpcode.POW:
-						Write[A]++;
-
-						if (IsRegist(B))
-							Read[B]++;
-						if (IsRegist(C))
-							Read[C]++;
-
-						break;
-					case LuaOpcode.SELF:
-						Write[A]++;
-						Write[A + 1]++;
-						Read[B]++;
-
-						if (IsRegist(C))
-							Read[C]++;
-
-						break;
-					case LuaOpcode.UNM:
-					case LuaOpcode.NOT:
-					case LuaOpcode.LEN:
-						Write[A]++;
-						Read[B]++;
-
-						break;
-					case LuaOpcode.CONCAT:
-						Write[A]++;
-
-						for (int RegIdx = B; RegIdx <= C; RegIdx++) {
-							Read[RegIdx]++;
-							Temp[RegIdx] = true;
-						}
-
-						break;
-					case LuaOpcode.SETLIST:
-						Temp[A + 1] = true;
-
-						break;
-					case LuaOpcode.JMP:
-						break; // Do nothing
-					case LuaOpcode.EQ:
-					case LuaOpcode.LT:
-					case LuaOpcode.LE:
-						if (IsRegist(B))
-							Read[B]++;
-						if (IsRegist(C))
-							Read[C]++;
-
-						break;
-					case LuaOpcode.TEST:
-						Read[A]++;
-
-						break;
-					case LuaOpcode.TESTSET:
-						Write[A]++;
-						Read[B]++;
-
-						break;
-					case LuaOpcode.CLOSURE:
-						int NumUpvals = Wrappeds[B].NumUpvals;
-
-						for (int RegIdx = 1; RegIdx <= NumUpvals; RegIdx++) {
-							int Idx = Progc + RegIdx;
-
-							if (Idx < Instrs.Count) { // Otherwise, from above stack
-								if (Instrs[Idx].Opcode == LuaOpcode.MOVE)
-									Local[Instrs[Idx].B] = true;
-
-								Skips[Idx] = true;
+								if (Udef.Opcode == LuaOpcode.MOVE)
+									Neups[Upv] = Locals[Udef.B];
+								else if (Udef.Opcode == LuaOpcode.GETUPVAL)
+									Neups[Upv] = Upvalues[Udef.B];
 							}
+
+							Sub.Upvalues = Neups;
 						}
 
-						Write[A]++;
-
-						break;
-					case LuaOpcode.CALL:
-						if (C >= 2) {
-							int Lim = A + C - 2;
-
-							for (int RegIdx = A; RegIdx <= Lim; RegIdx++)
-								Write[RegIdx]++;
-						};
-
-						goto case LuaOpcode.TAILCALL; // Just jumps down
-					case LuaOpcode.TAILCALL:
-						int LimB = A + B - 1;
-
-						for (int RegIdx = A; RegIdx <= LimB; RegIdx++) {
-							Read[A]++;
-							Temp[A] = true;
-						}
-
-						if (C >= 2) {
-							int LimC = A + C - 2;
-							int Next = Progc + 1;
-
-							while ((LimC >= A) && (Next < InsSize)) {
-								LuaInstruct Ninstruct = Instrs[Next];
-
-								if ((B == LimC) && (Ninstruct.Opcode == LuaOpcode.MOVE)) {
-									Write[Ninstruct.A]++;
-									Read[Ninstruct.B]++;
-
-									Local[Ninstruct.A] = true;
-
-									Skips[Next] = true;
-								}
-
-								LimC--;
-								Next++;
-							}
-						}
-
-						break;
-					default:
 						break;
 				}
 			}
-			#endregion
-
-			#region SetDeclars Outputs declarations to "Scoped"
-
-			for (Progc = 0, Progb = 0; Progc < StkSize; Progc++) {
-				string Name = "L";
-
-				bool IsTemp = Temp[Progc],
-					IsLocal = Local[Progc];
-
-				if (Progc < Serial.NumArgs) {
-					IsLocal = true;
-					Name = "A";
-				}
-
-				if (!IsLocal)
-					IsLocal = Write[Progc] != 0;
-				
-				if (IsLocal || !IsTemp) {
-					LuaLocal Declaration = Locals[Progb];
-
-					if (Declaration.Name == null) {
-						Declaration.Name = $"{Name}{Progb}_{Progc}";
-						Locals[Progb] = Declaration;
-					}
-					
-					Progb++;
-					Regists.Add(Declaration);
-				}
-			}
-
-			#endregion
 		}
 
 		public abstract string GetSource(int Level);
+		// NOTE: The Proto MUST be initialized
+
+		public LuaResult(LuaProto P) {
+			String[] Locs = new String[P.Locals.Count];
+			String[] Upvs = P.Upvalues.ToArray();
+
+			Instrs = P.Instructs;
+			Consts = P.Constants;
+			Subprotos = P.Protos;
+
+			Proto = P;
+
+			for (int Idx = 0; Idx < Locs.Length; Idx++)
+				Locs[Idx] = P.Locals[Idx].Name;
+
+			Locals = new StringMem(Locs, "ARG", P.NumArgs);
+			Upvalues = new StringMem(Upvs, "UPVAL", int.MaxValue);
+
+			for (int Idx = 0; Idx < P.NumArgs; Idx++) {
+				if (Idx < P.Locals.Count) {
+					LuaLocal Loc = new LuaLocal {
+						Name = Locals[Idx],
+						Arg = true
+					};
+
+					P.Locals[Idx] = Loc;
+				}
+			}
+		}
 	}
 }

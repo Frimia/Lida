@@ -1,14 +1,15 @@
-﻿using System;
+﻿using Relua;
+using System;
 using System.Collections.Generic;
 using System.Text;
-using Relua;
 using static Relua.Data;
 
 namespace Rerulsd {
 	class DisReader {
 		private struct Token {
 			public enum Toktype {
-				LOCAL, UPVALUE, CONST,
+				LOCAL, UPVALUE, CONST, RAW,
+				STACK, NUMPARAMS, NUPS, VARARG,
 				FUNCTION, END, INSTRUCT,
 				LITERAL, LINE
 			}
@@ -109,16 +110,12 @@ namespace Rerulsd {
 
 			if (Tok.Length == 0)
 				return;
-			else if (Tok.Equals(".local"))
-				New.Type = Token.Toktype.LOCAL;
-			else if (Tok.Equals(".upvalue"))
-				New.Type = Token.Toktype.UPVALUE;
-			else if (Tok.Equals(".const"))
-				New.Type = Token.Toktype.CONST;
-			else if (Tok.Equals(".function"))
-				New.Type = Token.Toktype.FUNCTION;
-			else if (Tok.Equals(".end"))
-				New.Type = Token.Toktype.END;
+			else if (Tok[0] == '.') {
+				bool Success = Enum.TryParse(Tok.Substring(1), true, out New.Type);
+
+				if (!Success)
+					throw new Exception("Invalid type to \"" + Tok + "\"");
+			}
 			else if (Char.IsUpper(Tok[0])) {
 				New.Type = Token.Toktype.INSTRUCT;
 
@@ -215,30 +212,60 @@ namespace Rerulsd {
 
 				switch (Tok.Type) {
 					case Token.Toktype.LOCAL:
-						Proto.Locals.Add(new LuaLocal {
+						LuaLocal NewLocal = new LuaLocal {
+							Startpc = (int) Tokens[++Idx].Const.Double,
+							Endpc = (int) Tokens[++Idx].Const.Double,
 							Name = Tokens[++Idx].Const.String,
-							Startpc = 0, // Rest are not needed
-							Endpc = 0,
 							Arg = false
-						});
+						};
+
+						NewLocal.Startpc = Math.Min(NewLocal.Startpc, Proto.Instructs.Count);
+						NewLocal.Endpc = Math.Min(NewLocal.Endpc, Proto.Instructs.Count);
+
+						Proto.Locals.Add(NewLocal);
 
 						break;
 					case Token.Toktype.UPVALUE:
 						Proto.Upvalues.Add(Tokens[++Idx].Const.String);
-						Proto.NumUpvals++;
 
 						break;
 					case Token.Toktype.CONST:
 						Proto.Constants.Add(Tokens[++Idx].Const);
 
 						break;
+					case Token.Toktype.RAW:
+						Proto.Instructs.Add(new LuaInstruct((int) Tokens[++Idx].Const.Double));
+
+						break;
+					case Token.Toktype.STACK:
+						Proto.Stack = (byte) Tokens[++Idx].Const.Double;
+
+						break;
+					case Token.Toktype.NUMPARAMS:
+						Proto.NumArgs = (byte) Tokens[++Idx].Const.Double;
+
+						break;
+					case Token.Toktype.NUPS:
+						Proto.NumUpvals = (byte) Tokens[++Idx].Const.Double;
+
+						break;
+					case Token.Toktype.VARARG:
+						Proto.Vararg = (byte) Tokens[++Idx].Const.Double;
+
+						break;
 					case Token.Toktype.FUNCTION:
 						LuaProto NewProto = new LuaProto().Set(null);
 
-						NewProto.Stack = (byte) Tokens[++Idx].Const.Double;
-						NewProto.NumArgs = (byte) Tokens[++Idx].Const.Double;
-						NewProto.Vararg = (byte) Tokens[++Idx].Const.Double;
+						NewProto.Defined = new int[2] {
+							(int) Tokens[++Idx].Const.Double,
+							(int) Tokens[++Idx].Const.Double
+						};
+
 						NewProto.Name = Tokens[++Idx].Const.String;
+						NewProto.NumUpvals = 0;
+						NewProto.NumArgs = 0;
+						NewProto.Vararg = 0;
+						NewProto.Stack = 0;
 
 						if (Proto != null) {
 							NewProto.Parent = Proto;
@@ -255,11 +282,15 @@ namespace Rerulsd {
 
 						break;
 					case Token.Toktype.INSTRUCT:
+						int A = (int) Tokens[++Idx].Const.Double,
+							B = (int) Tokens[++Idx].Const.Double,
+							C = (int) Tokens[++Idx].Const.Double;
+
 						LuaInstruct Instr = new LuaInstruct {
 							Opcode = Tok.Opcode,
-							A = (int) Tokens[++Idx].Const.Double,
-							B = (int) Tokens[++Idx].Const.Double,
-							C = (int) Tokens[++Idx].Const.Double
+							A = A,
+							B = B,
+							C = C
 						};
 						
 						Proto.Instructs.Add(Instr);
