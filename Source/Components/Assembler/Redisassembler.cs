@@ -1,29 +1,74 @@
-﻿using Relua;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
-using static Relua.Data;
+using SeeLua.Abstracted;
+using static SeeLua.Abstracted.StaticsData;
 
 // Rerudec.cs : Standalone disassembler and (wip) decompiler
-namespace Rerulsd {
+namespace Lida {
 	using static ReruData;
 
-	class LuaDisassembly : LuaResult {
+	class LuaDisassembly { // A *tiny* bit bloated but we didn't really need LuaResult anyways
+		private LuaProto Proto;
+		private StringMem Locals;
+		private StringMem Upvalues;
+		private StringBuilder Source;
+		// Bring up our Proto data
+		private List<LuaInstruct> Instrs;
+		private List<LuaConstant> Consts;
+		private List<LuaProto> Subprotos;
+
 		private List<LuaDisassembly> Preprotos;
 
-		public LuaDisassembly(LuaProto Subject) : base(Subject) {}
+		private string GetKst(int Idx) {
+			string Res = "ERR_NO_KST" + Idx;
 
+			if (Idx < Consts.Count) {
+				LuaConstant K = Consts[Idx];
+
+				if (K.Type == LuaConstantType.STRING) {
+					Res = $"\"{K.String.Sanitize()}\"";
+				}
+				else {
+					Res = K.ToString();
+				}
+			}
+
+			return Res;
+		}
+
+		public LuaDisassembly(LuaProto P) {
+			String[] Locs = new String[P.Locals.Count];
+			String[] Upvs = P.Upvalues.ToArray();
+
+			Instrs = P.Instructs;
+			Consts = P.Consts;
+			Subprotos = P.Protos;
+
+			Proto = P;
+
+			for (int Idx = 0; Idx < Locs.Length; Idx++)
+				Locs[Idx] = P.Locals[Idx].Name;
+
+			Locals = new StringMem(Locs, "ARG", P.Numparams);
+			Upvalues = new StringMem(Upvs, "UPVAL", int.MaxValue);
+		}
+
+		private string RegOrConst(int Place) =>
+			IsRegist(Place) ? Locals[Place] : GetKst(Place - 0x100);
+		
 		void DeclareHeader(int Level) {
-			string Data = Proto.ToString().Substring(Proto.Name.Length + 2);
+			string Name = Proto.Name.Sanitize();
+			string Data = Proto.ToString().Substring(Name.Length + 2);
 
-			Source.AlignedAppend(Level, true, $".function {Proto.Defined[0]} {Proto.Defined[1]} \"{Proto.Name}\" ;{Data}"); // Declaration
+			Source.AlignedAppend(Level, true, $".function {Proto.LineBegin} {Proto.LineEnd} \"{Name}\" ;{Data}"); // Declaration
 
 			if (Proto.Stack != 0) // Should NEVER be
 				Source.AlignedAppend(Level, true, ".stack " + Proto.Stack);
-			if (Proto.NumArgs != 0)
-				Source.AlignedAppend(Level, true, ".numparams " + Proto.NumArgs);
-			if (Proto.NumUpvals != 0)
-				Source.AlignedAppend(Level, true, ".nups " + Proto.NumUpvals);
+			if (Proto.Numparams != 0)
+				Source.AlignedAppend(Level, true, ".numparams " + Proto.Numparams);
+			if (Proto.Nups != 0)
+				Source.AlignedAppend(Level, true, ".nups " + Proto.Nups);
 			if (Proto.Vararg != 0)
 				Source.AlignedAppend(Level, true, ".vararg " + Proto.Vararg);
 
@@ -58,10 +103,10 @@ namespace Rerulsd {
 						E = Proto.Locals[Index].Endpc;
 					}
 
-					if (Index < Proto.NumArgs)
+					if (Index < Proto.Numparams)
 						Name = Name.PadRight(12);
 
-					Source.AlignedAppend(Level, true, String.Format(".local {0} {1} {2}{3}", S, E, Name, Index < Proto.NumArgs ? "; argument" : ""));
+					Source.AlignedAppend(Level, true, String.Format(".local {0} {1} {2}{3}", S, E, Name, Index < Proto.Numparams ? "; argument" : ""));
 				}
 			}
 		}
@@ -80,7 +125,7 @@ namespace Rerulsd {
 				Source.AppendLine();
 
 				for (int Index = 0; Index < Consts.Count; Index++)
-					Source.AlignedAppend(Level, true, $".const {Consts[Index]}");
+					Source.AlignedAppend(Level, true, $".const {GetKst(Index)}");
 			}
 		}
 
@@ -130,7 +175,7 @@ namespace Rerulsd {
 
 						break;
 					case LuaOpcode.LOADK:
-						Parse = $"{Locals[NA]} := {Consts[NB]}";
+						Parse = $"{Locals[NA]} := {GetKst(NB)}";
 
 						break;
 					case LuaOpcode.LOADBOOL:
@@ -149,7 +194,7 @@ namespace Rerulsd {
 
 						break;
 					case LuaOpcode.GETGLOBAL:
-						Parse = $"{Locals[NA]} := Gbl[{Consts[NB]}]";
+						Parse = $"{Locals[NA]} := Gbl[{GetKst(NB)}]";
 
 						break;
 					case LuaOpcode.GETTABLE:
@@ -157,7 +202,7 @@ namespace Rerulsd {
 
 						break;
 					case LuaOpcode.SETGLOBAL:
-						Parse = $"Gbl[{Consts[NB]}] = {Locals[NA]}";
+						Parse = $"Gbl[{GetKst(NB)}] = {Locals[NA]}";
 
 						break;
 					case LuaOpcode.SETUPVAL:
@@ -284,7 +329,7 @@ namespace Rerulsd {
 						StringBuilder ProtoIfn = new StringBuilder();
 						int Skips = 0;
 
-						for (int Idx = 0; Idx < Clos.NumUpvals; Idx++) {
+						for (int Idx = 0; Idx < Clos.Nups; Idx++) {
 							LuaInstruct Upval = Instrs[Index + Idx + 1];
 							string Type;
 
@@ -309,7 +354,7 @@ namespace Rerulsd {
 
 							if (Namer.A == NA) {
 								if (Namer.Opcode == LuaOpcode.SETGLOBAL)
-									Name = Consts[Namer.B].ToString();
+									Name = GetKst(Namer.B);
 								else if (Namer.Opcode == LuaOpcode.SETUPVAL)
 									Name = Upvalues[Namer.B];
 							}
@@ -341,7 +386,7 @@ namespace Rerulsd {
 		}
 
 		// Disassembler state : Complete
-		public override string GetSource(int Level) {
+		public string GetSource(int Level) {
 			int NumLocals = Proto.Stack;
 			StringBuilder Text = new StringBuilder(Instrs.Count);
 

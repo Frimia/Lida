@@ -1,9 +1,9 @@
-﻿#define IS_TRY_CATCH
+﻿//#define IS_TRY_CATCH
 
-using Relua;
 using System;
 using System.Diagnostics;
 using System.IO;
+using SeeLua.Abstracted;
 
 /* > Rerumu
  * Developer note:
@@ -21,7 +21,7 @@ using System.IO;
  */
 
 // Program.cs : Only makes usage of the Ui and compiling, Rerude itself is only dependant on the core
-namespace Rerulsd {
+namespace Lida {
 	static class Program { // This is for testing stuff, just loads in some bytecode
 		static DisReader LuReader = new DisReader();
 
@@ -33,7 +33,7 @@ namespace Rerulsd {
 		static byte[] Compile(string FileName) {
 			byte[] Code = File.ReadAllBytes(FileName);
 
-			if ((Code.Length == 0) || (Code[0] == 27))
+			if ((Code.Length != 0) && (Code[0] == 27))
 				return Code;
 
 			var Proc = new Process {
@@ -49,12 +49,18 @@ namespace Rerulsd {
 			Proc.Start();
 			Proc.WaitForExit();
 
-			Code = File.ReadAllBytes(FileName + ".tempout");
-			File.Delete(FileName + ".tempout");
+			if (File.Exists(FileName + ".tempout")) {
+				Code = File.ReadAllBytes(FileName + ".tempout");
+
+				File.Delete(FileName + ".tempout");
+			}
+			else {
+				throw new Exception("File could not be compiled");
+			}
 
 			return Code;
 		}
-
+		
 		static void ToFile(byte[] Content, string Path) {
 			if (Content.Length == 0) {
 				WriteLine("Failed to save empty file", ConsoleColor.Red);
@@ -71,43 +77,47 @@ namespace Rerulsd {
 		static void WriteLine(object Message, ConsoleColor Color = ConsoleColor.Gray, bool NewLine = true) {
 			Console.ForegroundColor = Color;
 			Console.Write(Message + (NewLine ? "\n" : ""));
-			Console.ForegroundColor = ConsoleColor.Gray;
 		}
-
-		static void Assemble(string FileName) {
-			string[] Lines = File.ReadAllLines(FileName, Data.RealASCII);
-			byte[] Result = LuReader.AsArray(Lines);
-
-			ToFile(Result, OutputName ?? (FileName + ".out"));
-		}
-
+		
 		static void Execute(string FileName) {
 			byte[] Result;
-			byte[] Bytecode = Compile(FileName);
-			LuaProto_S Proto = new LuaProto_S(Bytecode);
+			byte[] Bytecode;
+			LuaProto Proto;
 
-			if (Strip)
+			if (Mode == 1)
+				Bytecode = LuReader.AsBytecode(File.ReadAllLines(FileName, StaticsData.EightBit));
+			else
+				Bytecode = Compile(FileName);
+
+			Proto = Deserializer.Resolve(Bytecode).GetProto();
+
+			if (Strip) {
 				Proto.StripDebug(true);
-
-			if (Rebuild)
-				Proto.Analyze(true);
-
-			WriteLine($"Size - {Bytecode.Length} bytes", ConsoleColor.Yellow);
+			}
+			/*
+			if (Rebuild) {
+				Proto.Cascade(true);
+				Proto.Repair(true);
+			}
+			*/
 
 			switch (Mode) {
 				case 0:
-					Result = Bytecode;
+				case 1:
+					Result = Proto.Serialize();
 
 					break;
 				case 2:
 					LuaDisassembly Disas = new LuaDisassembly(Proto);
 
-					Result = Data.RealASCII.GetBytes(Disas.GetSource(0));
+					Result = StaticsData.EightBit.GetBytes(Disas.GetSource(0));
 
 					break;
 				default:
 					throw new ArgumentOutOfRangeException("Mode");
 			}
+
+			WriteLine($"Size - {Result.Length} bytes ({FileName})", ConsoleColor.Yellow);
 
 			ToFile(Result, OutputName ?? (FileName + ".out"));
 		}
@@ -121,11 +131,7 @@ namespace Rerulsd {
 #endif
 				Watcher.Start();
 
-				if (Mode != 1)
-					Execute(Input);
-				else
-					Assemble(Input);
-
+				Execute(Input);
 				Executed = true;
 #if IS_TRY_CATCH
 			}
@@ -138,12 +144,9 @@ namespace Rerulsd {
 
 			if (Executed)
 				WriteLine($"Elapsed - {Watcher.ElapsedMilliseconds}ms", ConsoleColor.DarkYellow);
-
-#if !IS_TRY_CATCH
-			Console.ReadLine();
-#endif
+			
 		}
-
+		
 		static void Main(string[] Args) {
 			int Numargs = Args.Length;
 			bool Version = false;
@@ -155,7 +158,7 @@ namespace Rerulsd {
 					switch (Arg) {
 						case "-v":
 							if (!Version) {
-								WriteLine("Lida Test Build - Copyright (c) 2017 Rerumu");
+								WriteLine("Lida Test Build - Copyright (c) 2018 Rerumu");
 
 								Version = true;
 							}
@@ -188,10 +191,13 @@ namespace Rerulsd {
 				WriteLine("Lida options;", ConsoleColor.White);
 				WriteLine("-v          : List current version");
 				WriteLine("-o [output] : Sets the output destination");
-				WriteLine("-m [mode]   : Sets the mode, Compile = 0, Disassemble = 1, Assemble = 2");
+				WriteLine("-m [mode]   : Sets the mode, Compile = 0, Assemble = 1, Disassemble = 2");
 				WriteLine("-s          : Strips debug data from result");
-				WriteLine("-r          : Rebuilds debug data onto result");
+				WriteLine("-r          : Rebuilds debug data onto result (nyi)");
 			}
+
+			Console.ResetColor();
+			Console.ReadLine();
 		}
 	}
 }
