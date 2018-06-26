@@ -110,7 +110,7 @@ namespace Lida {
 				case 2:
 					LuaDisassembly Disas = new LuaDisassembly(Proto);
 
-					Result = StaticsData.EightBit.GetBytes(Disas.GetSource(0));
+					Result = StaticsData.EightBit.GetBytes(Disas.GetSource());
 
 					break;
 				default:

@@ -106,7 +106,7 @@ namespace Lida {
 					if (Index < Proto.Numparams)
 						Name = Name.PadRight(12);
 
-					Source.AlignedAppend(Level, true, String.Format(".local {0} {1} {2}{3}", S, E, Name, Index < Proto.Numparams ? "; argument" : ""));
+					Source.AlignedAppend(Level, true, String.Format(".local {0} {1} {2}{3}", Name, S, E, Index < Proto.Numparams ? "; argument" : ""));
 				}
 			}
 		}
@@ -136,7 +136,7 @@ namespace Lida {
 			Source.AppendLine();
 
 			for (int Index = 0; Index < Preprotos.Count; Index++) {
-				string Sub = Preprotos[Index].GetSource(Level + 1);
+				string Sub = Preprotos[Index].ReadProto(Level + 1);
 				
 				Source.AlignedAppend(0, true, Sub);
 			}
@@ -386,7 +386,7 @@ namespace Lida {
 		}
 
 		// Disassembler state : Complete
-		public string GetSource(int Level) {
+		string ReadProto(int Level) {
 			int NumLocals = Proto.Stack;
 			StringBuilder Text = new StringBuilder(Instrs.Count);
 
@@ -406,6 +406,10 @@ namespace Lida {
 			Source.AlignedAppend(Level, true, ".end\n");
 
 			return Source.ToString();
+		}
+
+		public string GetSource() {
+			return String.Format(".version {0}\n{1}", Proto.Version, ReadProto(0));
 		}
 	}
 }

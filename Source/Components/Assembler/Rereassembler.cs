@@ -11,7 +11,7 @@ namespace Lida {
 				LOCAL, UPVALUE, CONST, RAW,
 				STACK, NUMPARAMS, NUPS, VARARG,
 				FUNCTION, END, INSTRUCT,
-				LITERAL, LINE
+				LITERAL, LINE, VERSION
 			}
 
 			public Toktype Type;
@@ -114,6 +114,7 @@ namespace Lida {
 
 			if (Tok.Length == 0)
 				return;
+
 			else if (Tok[0] == '.') {
 				bool Success = Enum.TryParse(Tok.Substring(1), true, out New.Type);
 
@@ -207,12 +208,14 @@ namespace Lida {
 		}
 
 		void ParseLns() { // Should handle protos properly
+			byte VersionId = 0;
 			for (int Idx = 0; Idx < Tokens.Count; Idx++) {
 				Token Tok = Tokens[Idx];
 				LuaProto Proto = null;
 
-				if (Protos.Count != 0)
+				if (Protos.Count != 0) { // Checks stack of protos
 					Proto = Protos[Protos.Count - 1];
+				}
 
 				switch (Tok.Type) {
 					case Token.Toktype.LOCAL:
@@ -221,10 +224,7 @@ namespace Lida {
 							(int) Tokens[++Idx].Const.Number,
 							(int) Tokens[++Idx].Const.Number
 						);
-
-						NewLocal.Startpc = Math.Min(NewLocal.Startpc, Proto.Instructs.Count);
-						NewLocal.Endpc = Math.Min(NewLocal.Endpc, Proto.Instructs.Count);
-
+						
 						Proto.Locals.Add(NewLocal);
 
 						break;
@@ -257,7 +257,7 @@ namespace Lida {
 
 						break;
 					case Token.Toktype.FUNCTION:
-						LuaProto NewProto = Deserializer.ResolveProto(Proto.Version);
+						LuaProto NewProto = Deserializer.ResolveProto(VersionId);
 
 						NewProto.LineBegin = (int) Tokens[++Idx].Const.Number;
 						NewProto.LineEnd = (int) Tokens[++Idx].Const.Number;
@@ -267,6 +267,13 @@ namespace Lida {
 						NewProto.Numparams = 0;
 						NewProto.Vararg = 0;
 						NewProto.Stack = 0;
+
+						NewProto.Instructs = new List<LuaInstruct>();
+						NewProto.Consts = new List<LuaConstant>();
+						NewProto.Protos = new List<LuaProto>();
+						NewProto.Locals = new List<LuaLocal>();
+						NewProto.Upvalues = new List<string>();
+						NewProto.Lines = new List<int>();
 
 						if (Proto != null) {
 							NewProto.Parent = Proto;
@@ -301,6 +308,10 @@ namespace Lida {
 						Proto.Lines.Add((int) Tok.Const.Number);
 
 						break;
+					case Token.Toktype.VERSION:
+						VersionId = (byte)Tokens[++Idx].Const.Number;
+
+						break;
 				}
 			}
 		}
@@ -313,10 +324,14 @@ namespace Lida {
 			SanitizeLns();
 			ParseLns();
 
-			if (Protos.Count != 0)
-				return Protos[0].Serialize();
-			else
+			if (Protos.Count != 0) {
+				LuaProto Top = Protos[0];
+
+				return Top.Serialize();
+			}
+			else {
 				throw new Exception("File could not be parsed");
+			}
 		}
 	}
 }
