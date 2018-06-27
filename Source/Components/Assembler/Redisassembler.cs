@@ -90,23 +90,24 @@ namespace Lida {
 		}
 
 		void DeclareLocals(int Level) {
-			if (Locals.Size != 0) {
+			if (Proto.Locals.Count != 0) {
 				Source.AppendLine();
 
-				for (int Index = 0; Index < Locals.Size; Index++) {
-					string Name = '"' + Locals[Index] + '"';
-					int S = 0,
-						E = 0;
-
-					if (Index < Proto.Locals.Count) {
-						S = Proto.Locals[Index].Startpc;
+				for (int Index = 0; Index < Proto.Locals.Count; Index++) {
+					int S = Proto.Locals[Index].Startpc,
 						E = Proto.Locals[Index].Endpc;
-					}
-
-					if (Index < Proto.Numparams)
-						Name = Name.PadRight(12);
-
-					Source.AlignedAppend(Level, true, String.Format(".local {0} {1} {2}{3}", Name, S, E, Index < Proto.Numparams ? "; argument" : ""));
+					
+					Source.AlignedAppend(
+						Level,
+						true,
+						String.Format(
+							".local \"{0}\" {1} {2}{3}",
+							Locals[Index],
+							S,
+							E,
+							Index < Proto.Numparams ? " ; argument" : ""
+						)
+					);
 				}
 			}
 		}

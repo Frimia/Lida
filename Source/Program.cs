@@ -1,4 +1,4 @@
-﻿//#define IS_TRY_CATCH
+﻿#define IS_TRY_CATCH
 
 using System;
 using System.Diagnostics;
@@ -197,7 +197,9 @@ namespace Lida {
 			}
 
 			Console.ResetColor();
+#if !IS_TRY_CATCH
 			Console.ReadLine();
+#endif
 		}
 	}
 }
