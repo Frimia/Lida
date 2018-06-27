@@ -221,7 +221,7 @@ namespace Lida {
 					case Token.Toktype.LOCAL:
 						LuaLocal NewLocal = new LuaLocal(
 							Tokens[++Idx].Const.String,
-							(int) Tokens[++Idx].Const.Number,
+							(int) Tokens[++Idx].Const.Number, // lazy conversion ik but it works
 							(int) Tokens[++Idx].Const.Number
 						);
 						
@@ -285,8 +285,18 @@ namespace Lida {
 
 						break;
 					case Token.Toktype.END:
-						if (Protos.Count > 1)
+						if (Protos.Count > 1) {
 							Protos.RemoveAt(Protos.Count - 1);
+						}
+
+						for (int Loc = 0; Loc < Proto.Locals.Count; Loc++) {
+							LuaLocal Lvar = Proto.Locals[Loc];
+							int Max = Math.Min(Lvar.Endpc, Proto.Instructs.Count - 1);
+							int Min = Math.Min(Lvar.Startpc, Max);
+
+							Lvar.Endpc = Max;
+							Lvar.Startpc = Min;
+						}
 
 						break;
 					case Token.Toktype.INSTRUCT:
